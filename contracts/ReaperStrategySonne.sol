@@ -4,47 +4,48 @@ import './abstract/ReaperBaseStrategy.sol';
 import './interfaces/IUniswapRouter.sol';
 import './interfaces/CErc20I.sol';
 import './interfaces/IComptroller.sol';
+import "./interfaces/IVeloRouter.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 
 pragma solidity 0.8.11;
 
 /**
- * @dev This strategy will deposit and leverage a token on Scream to maximize yield by farming Scream tokens
+ * @dev This strategy will deposit and leverage a token on Sonne to maximize yield by farming reward tokens
  */
-contract ReaperAutoCompoundScreamLeverage is ReaperBaseStrategy {
+contract ReaperStrategySonne is ReaperBaseStrategy {
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
     /**
      * @dev Tokens Used:
-     * {WFTM} - Required for liquidity routing when doing swaps. Also used to charge fees on yield.
-     * {SCREAM} - The reward token for farming
+     * {USDC} - Required for liquidity routing when doing swaps. Also used to charge fees on yield.
+     * {SONNE} - The reward token for farming
      * {want} - The vault token the strategy is maximizing
-     * {cWant} - The Scream version of the want token
+     * {cWant} - The Sonne version of the want token
      */
-    address public constant WFTM = 0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83;
-    address public constant SCREAM = 0xe0654C8e6fd4D733349ac7E09f6f23DA256bF475;
+    address public constant USDC = 0x7F5c764cBc14f9669B88837ca1490cCa17c31607;
+    address public constant SONNE = 0x1DB2466d9F5e10D7090E7152B68d62703a2245F0;
     address public want;
     CErc20I public cWant;
 
     /**
      * @dev Third Party Contracts:
-     * {UNI_ROUTER} - the UNI_ROUTER for target DEX
-     * {comptroller} - Scream contract to enter market and to claim Scream tokens
+     * {VELO_ROUTER} - the Velodrome router
+     * {comptroller} - Sonne contract to enter market and to claim Sonne tokens
      */
-    address public constant UNI_ROUTER = 0xF491e7B69E4244ad4002BC14e878a34207E38c29;
+    address public constant VELO_ROUTER = 0xa132DAB612dB5cB9fC9Ac426A0Cc215A3423F9c9;
     IComptroller public comptroller;
 
     /**
      * @dev Routes we take to swap tokens
-     * {screamToWftmRoute} - Route we take to get from {SCREAM} into {WFTM}.
-     * {wftmToWantRoute} - Route we take to get from {WFTM} into {want}.
+     * {sonneToUsdcRoute} - Route we take to get from {SONNE} into {USDC}.
+     * {usdcToWantRoute} - Route we take to get from {USDC} into {want}.
      */
-    address[] public screamToWftmRoute;
-    address[] public wftmToWantRoute;
+    address[] public sonneToUsdcRoute;
+    address[] public usdcToWantRoute;
 
     /**
-     * @dev Scream variables
-     * {markets} - Contains the Scream tokens to farm, used to enter markets and claim Scream
+     * @dev Sonne variables
+     * {markets} - Contains the Sonne tokens to farm, used to enter markets and claim Sonne
      * {MANTISSA} - The unit used by the Compound protocol
      * {LTV_SAFETY_ZONE} - We will only go up to 98% of max allowed LTV for {targetLTV}
      */
@@ -56,7 +57,7 @@ contract ReaperAutoCompoundScreamLeverage is ReaperBaseStrategy {
      * @dev Strategy variables
      * {targetLTV} - The target loan to value for the strategy where 1 ether = 100%
      * {allowedLTVDrift} - How much the strategy can deviate from the target ltv where 0.01 ether = 1%
-     * {balanceOfPool} - The total balance deposited into Scream (supplied - borrowed)
+     * {balanceOfPool} - The total balance deposited into Sonne (supplied - borrowed)
      * {borrowDepth} - The maximum amount of loops used to leverage and deleverage
      * {minWantToLeverage} - The minimum amount of want to leverage in a loop
      * {withdrawSlippageTolerance} - Maximum slippage authorized when withdrawing
@@ -67,7 +68,7 @@ contract ReaperAutoCompoundScreamLeverage is ReaperBaseStrategy {
     uint256 public borrowDepth;
     uint256 public minWantToLeverage;
     uint256 public maxBorrowDepth;
-    uint256 public minScreamToSell;
+    uint256 public minSonneToSell;
     uint256 public withdrawSlippageTolerance;
 
     /**
@@ -85,8 +86,8 @@ contract ReaperAutoCompoundScreamLeverage is ReaperBaseStrategy {
         markets = [_scWant];
         comptroller = IComptroller(cWant.comptroller());
         want = cWant.underlying();
-        wftmToWantRoute = [WFTM, want];
-        screamToWftmRoute = [SCREAM, WFTM];
+        usdcToWantRoute = [USDC, want];
+        sonneToUsdcRoute = [SONNE, USDC];
 
         targetLTV = 0.72 ether;
         allowedLTVDrift = 0.01 ether;
@@ -94,7 +95,7 @@ contract ReaperAutoCompoundScreamLeverage is ReaperBaseStrategy {
         borrowDepth = 12;
         minWantToLeverage = 1000;
         maxBorrowDepth = 15;
-        minScreamToSell = 1000;
+        minSonneToSell = 1000;
         withdrawSlippageTolerance = 50;
 
         _giveAllowances();
@@ -104,7 +105,7 @@ contract ReaperAutoCompoundScreamLeverage is ReaperBaseStrategy {
 
     /**
      * @dev Withdraws funds and sents them back to the vault.
-     * It withdraws {want} from Scream
+     * It withdraws {want} from Sonne
      * The available {want} minus fees is returned to the vault.
      */
     function withdraw(uint256 _withdrawAmount) external doUpdateBalance {
@@ -142,21 +143,6 @@ contract ReaperAutoCompoundScreamLeverage is ReaperBaseStrategy {
         }
 
         ltv = (MANTISSA * borrowed) / supplied;
-    }
-
-    /**
-     * @dev Returns the approx amount of profit from harvesting.
-     *      Profit is denominated in WFTM, and takes fees into account.
-     */
-    function estimateHarvest() external view override returns (uint256 profit, uint256 callFeeToUser) {
-        uint256 rewards = predictScreamAccrued();
-        if (rewards == 0) {
-            return (0, 0);
-        }
-        profit = IUniswapRouter(UNI_ROUTER).getAmountsOut(rewards, screamToWftmRoute)[1];
-        uint256 wftmFee = (profit * totalFee) / PERCENT_DIVISOR;
-        callFeeToUser = (wftmFee * callFee) / PERCENT_DIVISOR;
-        profit -= wftmFee;
     }
 
     /**
@@ -214,9 +200,9 @@ contract ReaperAutoCompoundScreamLeverage is ReaperBaseStrategy {
     /**
      * @dev Sets the minimum reward the will be sold (too little causes revert from Uniswap)
      */
-    function setMinScreamToSell(uint256 _minScreamToSell) external {
+    function setMinSonneToSell(uint256 _minSonneToSell) external {
         _onlyStrategistOrOwner();
-        minScreamToSell = _minScreamToSell;
+        minSonneToSell = _minSonneToSell;
     }
 
 
@@ -237,67 +223,20 @@ contract ReaperAutoCompoundScreamLeverage is ReaperBaseStrategy {
     }
 
     /**
-     * @dev Sets the swap path to go from {WFTM} to {want}.
+     * @dev Sets the swap path to go from {USDC} to {want}.
      */
-    function setWftmToWantRoute(address[] calldata _newWftmToWantRoute) external {
+    function setUsdcToWantRoute(address[] calldata _newUsdcToWantRoute) external {
         _onlyStrategistOrOwner();
-        require(_newWftmToWantRoute[0] == WFTM, "bad route");
-        require(_newWftmToWantRoute[_newWftmToWantRoute.length - 1] == want, "bad route");
-        delete wftmToWantRoute;
-        wftmToWantRoute = _newWftmToWantRoute;
-    }
-
-    /**
-     * @dev Function to retire the strategy. Claims all rewards and withdraws
-     *      all principal from external contracts, and sends everything back to
-     *      the vault. Can only be called by strategist or owner.
-     *
-     * Note: this is not an emergency withdraw function. For that, see panic().
-     */
-    function retireStrat() external doUpdateBalance {
-        _onlyStrategistOrOwner();
-        _claimRewards();
-        _swapRewardsToWftm();
-        _swapToWant();
-
-        _deleverage(type(uint256).max);
-        _withdrawUnderlyingToVault(balanceOfPool);
-    }
-
-    /**
-     * @dev Pauses supplied. Withdraws all funds from Scream, leaving rewards behind.
-     */
-    function panic() external doUpdateBalance {
-        _onlyStrategistOrOwner();
-        _deleverage(type(uint256).max);
-        pause();
-    }
-
-    /**
-     * @dev Unpauses the strat.
-     */
-    function unpause() external {
-        _onlyStrategistOrOwner();
-        _unpause();
-
-        _giveAllowances();
-
-        deposit();
-    }
-
-    /**
-     * @dev Pauses the strat.
-     */
-    function pause() public {
-        _onlyStrategistOrOwner();
-        _pause();
-        _removeAllowances();
+        require(_newUsdcToWantRoute[0] == USDC, "bad route");
+        require(_newUsdcToWantRoute[_newUsdcToWantRoute.length - 1] == want, "bad route");
+        delete usdcToWantRoute;
+        usdcToWantRoute = _newUsdcToWantRoute;
     }
 
     /**
      * @dev Function that puts the funds to work.
      * It gets called whenever someone supplied in the strategy's vault contract.
-     * It supplies {want} Scream to farm {SCREAM}
+     * It supplies {want} Sonne to farm {SONNE}
      */
     function deposit() public whenNotPaused doUpdateBalance {
         CErc20I(cWant).mint(balanceOfWant());
@@ -312,7 +251,7 @@ contract ReaperAutoCompoundScreamLeverage is ReaperBaseStrategy {
 
     /**
      * @dev Calculates the total amount of {want} held by the strategy
-     * which is the balance of want + the total amount supplied to Scream.
+     * which is the balance of want + the total amount supplied to Sonne.
      */
     function balanceOf() public view override returns (uint256) {
         return balanceOfWant() + balanceOfPool;
@@ -326,7 +265,7 @@ contract ReaperAutoCompoundScreamLeverage is ReaperBaseStrategy {
     }
 
     /**
-     * @dev Returns the current position in Scream. Does not accrue interest
+     * @dev Returns the current position in Sonne. Does not accrue interest
      * so might not be accurate, but the cWant is usually updated.
      */
     function getCurrentPosition() public view returns (uint256 supplied, uint256 borrowed) {
@@ -334,48 +273,6 @@ contract ReaperAutoCompoundScreamLeverage is ReaperBaseStrategy {
         borrowed = borrowBalance;
 
         supplied = (cWantBalance * exchangeRate) / MANTISSA;
-    }
-
-    /**
-     * @dev This function makes a prediction on how much {SCREAM} is accrued.
-     *      It is not 100% accurate as it uses current balances in Compound to predict into the past.
-     */
-    function predictScreamAccrued() public view returns (uint256) {
-        // Has no previous harvest to calculate accrual
-        if (lastHarvestTimestamp == 0) {
-            return 0;
-        }
-
-        (uint256 supplied, uint256 borrowed) = getCurrentPosition();
-        if (supplied == 0) {
-            return 0; // should be impossible to have 0 balance and positive comp accrued
-        }
-
-        uint256 distributionPerBlock = comptroller.compSpeeds(address(cWant));
-        uint256 totalBorrow = cWant.totalBorrows();
-
-        // total supply needs to be exchanged to underlying using exchange rate
-        uint256 totalSupplyCtoken = cWant.totalSupply();
-        uint256 totalSupply = totalSupplyCtoken
-            * cWant.exchangeRateStored()
-            / MANTISSA;
-
-        uint256 blockShareSupply = 0;
-        if (totalSupply > 0) {
-            blockShareSupply = supplied * distributionPerBlock / totalSupply;
-        }
-
-        uint256 blockShareBorrow = 0;
-        if (totalBorrow > 0) {
-            blockShareBorrow = borrowed * distributionPerBlock / totalBorrow;
-        }
-
-        // How much we expect to earn per block
-        uint256 blockShare = blockShareSupply + blockShareBorrow;
-        uint256 secondsPerBlock = 1; // Average FTM block speed
-        uint256 blocksSinceLast = block.timestamp - lastHarvestTimestamp / secondsPerBlock;
-
-        return blocksSinceLast * blockShare;
     }
 
     /**
@@ -632,15 +529,15 @@ contract ReaperAutoCompoundScreamLeverage is ReaperBaseStrategy {
     /**
      * @dev Core function of the strat, in charge of collecting and re-investing rewards.
      * @notice Assumes the deposit will take care of the TVL rebalancing.
-     * 1. Claims {SCREAM} from the comptroller.
-     * 2. Swaps {SCREAM} to {WFTM}.
+     * 1. Claims {SONNE} from the comptroller.
+     * 2. Swaps {SONNE} to {USDC}.
      * 3. Claims fees for the harvest caller and treasury.
-     * 4. Swaps the {WFTM} token for {want}
+     * 4. Swaps the {USDC} token for {want}
      * 5. Deposits.
      */
     function _harvestCore() internal override {
         _claimRewards();
-        _swapRewardsToWftm();
+        _swapRewardsToUsdc();
         _chargeFees();
         _swapToWant();
         deposit();
@@ -657,59 +554,63 @@ contract ReaperAutoCompoundScreamLeverage is ReaperBaseStrategy {
         comptroller.claimComp(address(this), tokens);
     }
 
-    /**
-     * @dev Core harvest function.
-     * Swaps {SCREAM} to {WFTM}
-     */
-    function _swapRewardsToWftm() internal {
-        uint256 screamBalance = IERC20Upgradeable(SCREAM).balanceOf(address(this));
-        if (screamBalance >= minScreamToSell) {
-            IUniswapRouter(UNI_ROUTER).swapExactTokensForTokensSupportingFeeOnTransferTokens(
-                screamBalance,
-                0,
-                screamToWftmRoute,
-                address(this),
-                block.timestamp + 600
-            );
+    /// @dev Helper function to swap given a {_path} and an {_amount}.
+    function _swap(address[] memory _path, uint256 _amount) internal {
+        if (_amount != 0) {
+            IVeloRouter router = IVeloRouter(VELO_ROUTER);
+            IVeloRouter.route[] memory routes = new IVeloRouter.route[](_path.length - 1);
+
+            uint256 prevRouteOutput = _amount;
+            uint256 output;
+            bool useStable;
+            for (uint256 i = 0; i < routes.length; i++) {
+                (output, useStable) = router.getAmountOut(prevRouteOutput, _path[i], _path[i + 1]);
+                routes[i] = IVeloRouter.route({from: _path[i], to: _path[i + 1], stable: useStable});
+                prevRouteOutput = output;
+            }
+            IERC20Upgradeable(_path[0]).safeIncreaseAllowance(VELO_ROUTER, _amount);
+            router.swapExactTokensForTokens(_amount, 0, routes, address(this), block.timestamp);
         }
     }
 
     /**
      * @dev Core harvest function.
-     * Charges fees based on the amount of WFTM gained from reward
+     * Swaps {SONNE} to {USDC}
+     */
+    function _swapRewardsToUsdc() internal {
+        uint256 sonneBalance = IERC20Upgradeable(SONNE).balanceOf(address(this));
+        if (sonneBalance >= minSonneToSell) {
+            _swap(sonneToUsdcRoute, _sonneBalance);
+        }
+    }
+
+    /**
+     * @dev Core harvest function.
+     * Charges fees based on the amount of USDC gained from reward
      */
     function _chargeFees() internal {
-        uint256 wftmFee = (IERC20Upgradeable(WFTM).balanceOf(address(this)) * totalFee) / PERCENT_DIVISOR;
-        if (wftmFee != 0) {
-            uint256 callFeeToUser = (wftmFee * callFee) / PERCENT_DIVISOR;
-            uint256 treasuryFeeToVault = (wftmFee * treasuryFee) / PERCENT_DIVISOR;
-            uint256 feeToStrategist = (treasuryFeeToVault * strategistFee) / PERCENT_DIVISOR;
-            treasuryFeeToVault -= feeToStrategist;
+        uint256 usdcFee = (IERC20Upgradeable(USDC).balanceOf(address(this)) * totalFee) / PERCENT_DIVISOR;
+        if (usdcFee != 0) {
+            uint256 callFeeToUser = (usdcFee * callFee) / PERCENT_DIVISOR;
+            uint256 treasuryFeeToVault = (usdcFee * treasuryFee) / PERCENT_DIVISOR;
 
-            IERC20Upgradeable(WFTM).safeTransfer(msg.sender, callFeeToUser);
-            IERC20Upgradeable(WFTM).safeTransfer(treasury, treasuryFeeToVault);
-            IERC20Upgradeable(WFTM).safeTransfer(strategistRemitter, feeToStrategist);
+            IERC20Upgradeable(USDC).safeTransfer(msg.sender, callFeeToUser);
+            IERC20Upgradeable(USDC).safeTransfer(treasury, treasuryFeeToVault);
         }
     }
 
     /**
      * @dev Core harvest function.
-     * Swaps {WFTM} for {want}
+     * Swaps {USDC} for {want}
      */
     function _swapToWant() internal {
-        if (want == WFTM) {
+        if (want == USDC) {
             return;
         }
         
-        uint256 wftmBalance = IERC20Upgradeable(WFTM).balanceOf(address(this));
-        if (wftmBalance != 0) {
-            IUniswapRouter(UNI_ROUTER).swapExactTokensForTokensSupportingFeeOnTransferTokens(
-                wftmBalance,
-                0,
-                wftmToWantRoute,
-                address(this),
-                block.timestamp + 600
-            );
+        uint256 usdcBalance = IERC20Upgradeable(USDC).balanceOf(address(this));
+        if (usdcBalance != 0) {
+            _swap(usdcToWantRoute, usdcBalance);
         }
     }
 
@@ -721,13 +622,13 @@ contract ReaperAutoCompoundScreamLeverage is ReaperBaseStrategy {
             address(cWant),
             type(uint256).max - IERC20Upgradeable(want).allowance(address(this), address(cWant))
         );
-        IERC20Upgradeable(WFTM).safeIncreaseAllowance(
-            UNI_ROUTER,
-            type(uint256).max - IERC20Upgradeable(WFTM).allowance(address(this), UNI_ROUTER)
+        IERC20Upgradeable(USDC).safeIncreaseAllowance(
+            VELO_ROUTER,
+            type(uint256).max - IERC20Upgradeable(USDC).allowance(address(this), VELO_ROUTER)
         );
-        IERC20Upgradeable(SCREAM).safeIncreaseAllowance(
-            UNI_ROUTER,
-            type(uint256).max - IERC20Upgradeable(SCREAM).allowance(address(this), UNI_ROUTER)
+        IERC20Upgradeable(SONNE).safeIncreaseAllowance(
+            VELO_ROUTER,
+            type(uint256).max - IERC20Upgradeable(SONNE).allowance(address(this), VELO_ROUTER)
         );
     }
 
@@ -736,8 +637,8 @@ contract ReaperAutoCompoundScreamLeverage is ReaperBaseStrategy {
      */
     function _removeAllowances() internal {
         IERC20Upgradeable(want).safeDecreaseAllowance(address(cWant), IERC20Upgradeable(want).allowance(address(this), address(cWant)));
-        IERC20Upgradeable(WFTM).safeDecreaseAllowance(UNI_ROUTER, IERC20Upgradeable(WFTM).allowance(address(this), UNI_ROUTER));
-        IERC20Upgradeable(SCREAM).safeDecreaseAllowance(UNI_ROUTER, IERC20Upgradeable(SCREAM).allowance(address(this), UNI_ROUTER));
+        IERC20Upgradeable(USDC).safeDecreaseAllowance(VELO_ROUTER, IERC20Upgradeable(USDC).allowance(address(this), VELO_ROUTER));
+        IERC20Upgradeable(SONNE).safeDecreaseAllowance(VELO_ROUTER, IERC20Upgradeable(SONNE).allowance(address(this), VELO_ROUTER));
     }
 
     /**
