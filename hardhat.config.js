@@ -1,17 +1,20 @@
-require('@nomiclabs/hardhat-etherscan');
-require('@nomiclabs/hardhat-waffle');
-require('hardhat-gas-reporter');
-require('solidity-coverage');
+require("@nomicfoundation/hardhat-toolbox");
+require("dotenv").config();
 require('@openzeppelin/hardhat-upgrades');
-require('hardhat-contract-sizer');
 
-const { devAccount } = require('./secrets.json');
+const PRIVATE_KEY = process.env.DEPLOYER_PRIVATE_KEY;
+const OPSCAN_KEY = process.env.OPSCAN_API_KEY;
 
 module.exports = {
   networks: {
+    optimism: {
+      url: 'https://optimism-mainnet.public.blastapi.io',
+      chainId: 10,
+      accounts: [`0x${PRIVATE_KEY}`],
+    },
     opera: {
       url: 'https://late-wild-fire.fantom.quiknode.pro/',
-      accounts: [devAccount],
+      accounts: [`0x${PRIVATE_KEY}`],
     },
   },
   solidity: {

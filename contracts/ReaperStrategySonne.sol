@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
-import './abstract/ReaperBaseStrategy.sol';
-import './interfaces/IUniswapRouter.sol';
+import './abstract/ReaperBaseStrategyv3.sol';
+//import './interfaces/IUniswapRouter.sol';
 import './interfaces/CErc20I.sol';
 import './interfaces/IComptroller.sol';
 import "./interfaces/IVeloRouter.sol";
@@ -12,7 +12,7 @@ pragma solidity 0.8.11;
 /**
  * @dev This strategy will deposit and leverage a token on Sonne to maximize yield by farming reward tokens
  */
-contract ReaperStrategySonne is ReaperBaseStrategy {
+contract ReaperStrategySonne is ReaperBaseStrategyv3 {
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
     /**
@@ -77,11 +77,12 @@ contract ReaperStrategySonne is ReaperBaseStrategy {
      */
     function initialize(
         address _vault,
-        address[] memory _feeRemitters,
+        address _treasury,
         address[] memory _strategists,
+        address[] memory _multisigRoles,
         address _scWant
     ) public initializer {
-        __ReaperBaseStrategy_init(_vault, _feeRemitters, _strategists);
+        __ReaperBaseStrategy_init(_vault, _treasury, _strategists, _multisigRoles);
         cWant = CErc20I(_scWant);
         markets = [_scWant];
         comptroller = IComptroller(cWant.comptroller());
@@ -108,7 +109,7 @@ contract ReaperStrategySonne is ReaperBaseStrategy {
      * It withdraws {want} from Sonne
      * The available {want} minus fees is returned to the vault.
      */
-    function withdraw(uint256 _withdrawAmount) external doUpdateBalance {
+    function _withdraw(uint256 _withdrawAmount) internal override doUpdateBalance {
         require(msg.sender == vault);
 
         uint256 _ltv = _calculateLTVAfterWithdraw(_withdrawAmount);
@@ -149,7 +150,7 @@ contract ReaperStrategySonne is ReaperBaseStrategy {
      * @dev Emergency function to deleverage in case regular deleveraging breaks
      */
     function manualDeleverage(uint256 amount) external doUpdateBalance {
-        _onlyStrategistOrOwner();
+        _atLeastRole(STRATEGIST);
         require(cWant.redeemUnderlying(amount) == 0);
         require(cWant.repayBorrow(amount) == 0);
     }
@@ -158,7 +159,7 @@ contract ReaperStrategySonne is ReaperBaseStrategy {
      * @dev Emergency function to deleverage in case regular deleveraging breaks
      */
     function manualReleaseWant(uint256 amount) external doUpdateBalance {
-        _onlyStrategistOrOwner();
+        _atLeastRole(STRATEGIST);
         require(cWant.redeemUnderlying(amount) == 0);
     }
 
@@ -168,7 +169,7 @@ contract ReaperStrategySonne is ReaperBaseStrategy {
      */
     function setTargetLtv(uint256 _ltv) external {
         if (!hasRole(KEEPER, msg.sender)) {
-            _onlyStrategistOrOwner();
+            _atLeastRole(STRATEGIST);
         }
 
         (, uint256 collateralFactorMantissa, ) = comptroller.markets(address(cWant));
@@ -182,7 +183,7 @@ contract ReaperStrategySonne is ReaperBaseStrategy {
      * Should be in units of 1e18
      */
     function setAllowedLtvDrift(uint256 _drift) external {
-        _onlyStrategistOrOwner();
+        _atLeastRole(STRATEGIST);
         (, uint256 collateralFactorMantissa, ) = comptroller.markets(address(cWant));
         require(collateralFactorMantissa > targetLTV + _drift);
         allowedLTVDrift = _drift;
@@ -192,7 +193,7 @@ contract ReaperStrategySonne is ReaperBaseStrategy {
      * @dev Sets a new borrow depth (how many loops for leveraging+deleveraging)
      */
     function setBorrowDepth(uint8 _borrowDepth) external {
-        _onlyStrategistOrOwner();
+        _atLeastRole(STRATEGIST);
         require(_borrowDepth <= maxBorrowDepth);
         borrowDepth = _borrowDepth;
     }
@@ -201,7 +202,7 @@ contract ReaperStrategySonne is ReaperBaseStrategy {
      * @dev Sets the minimum reward the will be sold (too little causes revert from Uniswap)
      */
     function setMinSonneToSell(uint256 _minSonneToSell) external {
-        _onlyStrategistOrOwner();
+        _atLeastRole(STRATEGIST);
         minSonneToSell = _minSonneToSell;
     }
 
@@ -210,7 +211,7 @@ contract ReaperStrategySonne is ReaperBaseStrategy {
      * @dev Sets the minimum want to leverage/deleverage (loop) for
      */
     function setMinWantToLeverage(uint256 _minWantToLeverage) external {
-        _onlyStrategistOrOwner();
+        _atLeastRole(STRATEGIST);
         minWantToLeverage = _minWantToLeverage;
     }
 
@@ -218,7 +219,7 @@ contract ReaperStrategySonne is ReaperBaseStrategy {
      * @dev Sets the maximum slippage authorized when withdrawing
      */
     function setWithdrawSlippageTolerance(uint256 _withdrawSlippageTolerance) external {
-        _onlyStrategistOrOwner();
+        _atLeastRole(STRATEGIST);
         withdrawSlippageTolerance = _withdrawSlippageTolerance;
     }
 
@@ -226,7 +227,7 @@ contract ReaperStrategySonne is ReaperBaseStrategy {
      * @dev Sets the swap path to go from {USDC} to {want}.
      */
     function setUsdcToWantRoute(address[] calldata _newUsdcToWantRoute) external {
-        _onlyStrategistOrOwner();
+        _atLeastRole(STRATEGIST);
         require(_newUsdcToWantRoute[0] == USDC, "bad route");
         require(_newUsdcToWantRoute[_newUsdcToWantRoute.length - 1] == want, "bad route");
         delete usdcToWantRoute;
@@ -238,7 +239,7 @@ contract ReaperStrategySonne is ReaperBaseStrategy {
      * It gets called whenever someone supplied in the strategy's vault contract.
      * It supplies {want} Sonne to farm {SONNE}
      */
-    function deposit() public whenNotPaused doUpdateBalance {
+    function _deposit() internal override doUpdateBalance {
         CErc20I(cWant).mint(balanceOfWant());
         uint256 _ltv = _calculateLTV();
 
@@ -387,9 +388,9 @@ contract ReaperStrategySonne is ReaperBaseStrategy {
     }
 
     /**
-     * @dev Withdraws want to the vault by redeeming the underlying
+     * @dev Withdraws want to the strat by redeeming the underlying
      */
-    function _withdrawUnderlyingToVault(uint256 _withdrawAmount) internal {
+    function _withdrawUnderlying(uint256 _withdrawAmount) internal {
         uint256 initialWithdrawAmount = _withdrawAmount;
         uint256 supplied = cWant.balanceOfUnderlying(address(this));
         uint256 borrowed = cWant.borrowBalanceStored(address(this));
@@ -432,7 +433,14 @@ contract ReaperStrategySonne is ReaperBaseStrategy {
         }
 
         CErc20I(cWant).redeemUnderlying(withdrawAmount);
-        IERC20Upgradeable(want).safeTransfer(vault, withdrawAmount);
+    }
+
+    /**
+     * @dev Withdraws want to the vault by redeeming the underlying
+     */
+    function _withdrawUnderlyingToVault(uint256 _withdrawAmount) internal {
+        _withdrawUnderlying(_withdrawAmount);
+        IERC20Upgradeable(want).safeTransfer(vault, IERC20Upgradeable(want).balanceOf(address(this)));
     }
 
     /**
@@ -535,10 +543,10 @@ contract ReaperStrategySonne is ReaperBaseStrategy {
      * 4. Swaps the {USDC} token for {want}
      * 5. Deposits.
      */
-    function _harvestCore() internal override {
+    function _harvestCore() internal override returns(uint256 callerFee) {
         _claimRewards();
         _swapRewardsToUsdc();
-        _chargeFees();
+        callerFee = _chargeFees();
         _swapToWant();
         deposit();
     }
@@ -580,7 +588,7 @@ contract ReaperStrategySonne is ReaperBaseStrategy {
     function _swapRewardsToUsdc() internal {
         uint256 sonneBalance = IERC20Upgradeable(SONNE).balanceOf(address(this));
         if (sonneBalance >= minSonneToSell) {
-            _swap(sonneToUsdcRoute, _sonneBalance);
+            _swap(sonneToUsdcRoute, sonneBalance);
         }
     }
 
@@ -588,10 +596,10 @@ contract ReaperStrategySonne is ReaperBaseStrategy {
      * @dev Core harvest function.
      * Charges fees based on the amount of USDC gained from reward
      */
-    function _chargeFees() internal {
+    function _chargeFees() internal returns(uint256 callFeeToUser) {
         uint256 usdcFee = (IERC20Upgradeable(USDC).balanceOf(address(this)) * totalFee) / PERCENT_DIVISOR;
         if (usdcFee != 0) {
-            uint256 callFeeToUser = (usdcFee * callFee) / PERCENT_DIVISOR;
+            callFeeToUser = (usdcFee * callFee) / PERCENT_DIVISOR;
             uint256 treasuryFeeToVault = (usdcFee * treasuryFee) / PERCENT_DIVISOR;
 
             IERC20Upgradeable(USDC).safeTransfer(msg.sender, callFeeToUser);
@@ -612,6 +620,14 @@ contract ReaperStrategySonne is ReaperBaseStrategy {
         if (usdcBalance != 0) {
             _swap(usdcToWantRoute, usdcBalance);
         }
+    }
+
+    /**
+     * @dev Withdraws all funds leaving rewards behind.
+     */
+    function _reclaimWant() internal override {
+        _deleverage(type(uint256).max);
+        _withdrawUnderlying(balanceOfPool);
     }
 
     /**
