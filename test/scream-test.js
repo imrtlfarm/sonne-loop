@@ -41,8 +41,8 @@ describe('Vaults', function () {
   const treasuryAddress = '0xeb9C9b785aA7818B2EBC8f9842926c4B9f707e4B';
 
   const usdcAddress = '0x7F5c764cBc14f9669B88837ca1490cCa17c31607';
-  const soWantAddress = '0xEC8FEa79026FfEd168cCf5C627c7f486D77b765F';
-  const wantAddress = usdcAddress;
+  const soWantAddress = '0x5Ff29E4470799b982408130EFAaBdeeAE7f66a10';
+  const wantAddress = '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58';
 
   const wantHolder = '0xD6216fC19DB775Df9774a6E33526131dA7D19a2c';
   const wantWhaleAddress = '0xEbe80f029b1c02862B9E8a70a7e5317C06F62Cae';
