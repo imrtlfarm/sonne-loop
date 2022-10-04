@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 
-import './abstract/ReaperBaseStrategy.sol';
+import './abstract/ReaperBaseStrategyv3.sol';
 //import './interfaces/IUniswapRouter.sol';
 import './interfaces/CErc20I.sol';
 import './interfaces/IComptroller.sol';
@@ -149,7 +149,7 @@ contract ReaperStrategySonne is ReaperBaseStrategyv3 {
      * @dev Emergency function to deleverage in case regular deleveraging breaks
      */
     function manualDeleverage(uint256 amount) external doUpdateBalance {
-        _onlyStrategistOrOwner();
+        _atLeastRole(STRATEGIST);
         require(cWant.redeemUnderlying(amount) == 0);
         require(cWant.repayBorrow(amount) == 0);
     }
@@ -158,7 +158,7 @@ contract ReaperStrategySonne is ReaperBaseStrategyv3 {
      * @dev Emergency function to deleverage in case regular deleveraging breaks
      */
     function manualReleaseWant(uint256 amount) external doUpdateBalance {
-        _onlyStrategistOrOwner();
+        _atLeastRole(STRATEGIST);
         require(cWant.redeemUnderlying(amount) == 0);
     }
 
@@ -168,7 +168,7 @@ contract ReaperStrategySonne is ReaperBaseStrategyv3 {
      */
     function setTargetLtv(uint256 _ltv) external {
         if (!hasRole(KEEPER, msg.sender)) {
-            _onlyStrategistOrOwner();
+            _atLeastRole(STRATEGIST);
         }
 
         (, uint256 collateralFactorMantissa, ) = comptroller.markets(address(cWant));
@@ -182,7 +182,7 @@ contract ReaperStrategySonne is ReaperBaseStrategyv3 {
      * Should be in units of 1e18
      */
     function setAllowedLtvDrift(uint256 _drift) external {
-        _onlyStrategistOrOwner();
+        _atLeastRole(STRATEGIST);
         (, uint256 collateralFactorMantissa, ) = comptroller.markets(address(cWant));
         require(collateralFactorMantissa > targetLTV + _drift);
         allowedLTVDrift = _drift;
@@ -192,7 +192,7 @@ contract ReaperStrategySonne is ReaperBaseStrategyv3 {
      * @dev Sets a new borrow depth (how many loops for leveraging+deleveraging)
      */
     function setBorrowDepth(uint8 _borrowDepth) external {
-        _onlyStrategistOrOwner();
+        _atLeastRole(STRATEGIST);
         require(_borrowDepth <= maxBorrowDepth);
         borrowDepth = _borrowDepth;
     }
@@ -201,7 +201,7 @@ contract ReaperStrategySonne is ReaperBaseStrategyv3 {
      * @dev Sets the minimum reward the will be sold (too little causes revert from Uniswap)
      */
     function setMinSonneToSell(uint256 _minSonneToSell) external {
-        _onlyStrategistOrOwner();
+        _atLeastRole(STRATEGIST);
         minSonneToSell = _minSonneToSell;
     }
 
@@ -210,7 +210,7 @@ contract ReaperStrategySonne is ReaperBaseStrategyv3 {
      * @dev Sets the minimum want to leverage/deleverage (loop) for
      */
     function setMinWantToLeverage(uint256 _minWantToLeverage) external {
-        _onlyStrategistOrOwner();
+        _atLeastRole(STRATEGIST);
         minWantToLeverage = _minWantToLeverage;
     }
 
@@ -218,7 +218,7 @@ contract ReaperStrategySonne is ReaperBaseStrategyv3 {
      * @dev Sets the maximum slippage authorized when withdrawing
      */
     function setWithdrawSlippageTolerance(uint256 _withdrawSlippageTolerance) external {
-        _onlyStrategistOrOwner();
+        _atLeastRole(STRATEGIST);
         withdrawSlippageTolerance = _withdrawSlippageTolerance;
     }
 
@@ -226,7 +226,7 @@ contract ReaperStrategySonne is ReaperBaseStrategyv3 {
      * @dev Sets the swap path to go from {USDC} to {want}.
      */
     function setUsdcToWantRoute(address[] calldata _newUsdcToWantRoute) external {
-        _onlyStrategistOrOwner();
+        _atLeastRole(STRATEGIST);
         require(_newUsdcToWantRoute[0] == USDC, "bad route");
         require(_newUsdcToWantRoute[_newUsdcToWantRoute.length - 1] == want, "bad route");
         delete usdcToWantRoute;
@@ -580,7 +580,7 @@ contract ReaperStrategySonne is ReaperBaseStrategyv3 {
     function _swapRewardsToUsdc() internal {
         uint256 sonneBalance = IERC20Upgradeable(SONNE).balanceOf(address(this));
         if (sonneBalance >= minSonneToSell) {
-            _swap(sonneToUsdcRoute, _sonneBalance);
+            _swap(sonneToUsdcRoute, sonneBalance);
         }
     }
 
