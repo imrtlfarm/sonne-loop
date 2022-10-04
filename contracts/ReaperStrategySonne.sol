@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: agpl-3.0
 
 import './abstract/ReaperBaseStrategyv3.sol';
 //import './interfaces/IUniswapRouter.sol';
@@ -96,7 +96,7 @@ contract ReaperStrategySonne is ReaperBaseStrategyv3 {
         allowedLTVDrift = 0.01 ether;
         balanceOfPool = 0;
         borrowDepth = 12;
-        minWantToLeverage = 5;
+        minWantToLeverage = 1000;
         maxBorrowDepth = 15;
         minSonneToSell = 10000000000000000;
         withdrawSlippageTolerance = 50;
