@@ -77,11 +77,12 @@ contract ReaperStrategySonne is ReaperBaseStrategyv3 {
      */
     function initialize(
         address _vault,
-        address[] memory _feeRemitters,
+        address _treasury,
         address[] memory _strategists,
+        address[] memory _multisigRoles,
         address _scWant
     ) public initializer {
-        __ReaperBaseStrategy_init(_vault, _feeRemitters, _strategists);
+        __ReaperBaseStrategy_init(_vault, _treasury, _strategists, _multisigRoles);
         cWant = CErc20I(_scWant);
         markets = [_scWant];
         comptroller = IComptroller(cWant.comptroller());
@@ -108,7 +109,7 @@ contract ReaperStrategySonne is ReaperBaseStrategyv3 {
      * It withdraws {want} from Sonne
      * The available {want} minus fees is returned to the vault.
      */
-    function withdraw(uint256 _withdrawAmount) external doUpdateBalance {
+    function _withdraw(uint256 _withdrawAmount) internal override doUpdateBalance {
         require(msg.sender == vault);
 
         uint256 _ltv = _calculateLTVAfterWithdraw(_withdrawAmount);
@@ -238,7 +239,7 @@ contract ReaperStrategySonne is ReaperBaseStrategyv3 {
      * It gets called whenever someone supplied in the strategy's vault contract.
      * It supplies {want} Sonne to farm {SONNE}
      */
-    function deposit() public whenNotPaused doUpdateBalance {
+    function _deposit() internal override doUpdateBalance {
         CErc20I(cWant).mint(balanceOfWant());
         uint256 _ltv = _calculateLTV();
 
@@ -387,9 +388,9 @@ contract ReaperStrategySonne is ReaperBaseStrategyv3 {
     }
 
     /**
-     * @dev Withdraws want to the vault by redeeming the underlying
+     * @dev Withdraws want to the strat by redeeming the underlying
      */
-    function _withdrawUnderlyingToVault(uint256 _withdrawAmount) internal {
+    function _withdrawUnderlying(uint256 _withdrawAmount) internal {
         uint256 initialWithdrawAmount = _withdrawAmount;
         uint256 supplied = cWant.balanceOfUnderlying(address(this));
         uint256 borrowed = cWant.borrowBalanceStored(address(this));
@@ -432,7 +433,14 @@ contract ReaperStrategySonne is ReaperBaseStrategyv3 {
         }
 
         CErc20I(cWant).redeemUnderlying(withdrawAmount);
-        IERC20Upgradeable(want).safeTransfer(vault, withdrawAmount);
+    }
+
+    /**
+     * @dev Withdraws want to the vault by redeeming the underlying
+     */
+    function _withdrawUnderlyingToVault(uint256 _withdrawAmount) internal {
+        _withdrawUnderlying(_withdrawAmount);
+        IERC20Upgradeable(want).safeTransfer(vault, IERC20Upgradeable(want).balanceOf(address(this)));
     }
 
     /**
@@ -535,10 +543,10 @@ contract ReaperStrategySonne is ReaperBaseStrategyv3 {
      * 4. Swaps the {USDC} token for {want}
      * 5. Deposits.
      */
-    function _harvestCore() internal override {
+    function _harvestCore() internal override returns(uint256 callerFee) {
         _claimRewards();
         _swapRewardsToUsdc();
-        _chargeFees();
+        callerFee = _chargeFees();
         _swapToWant();
         deposit();
     }
@@ -588,10 +596,10 @@ contract ReaperStrategySonne is ReaperBaseStrategyv3 {
      * @dev Core harvest function.
      * Charges fees based on the amount of USDC gained from reward
      */
-    function _chargeFees() internal {
+    function _chargeFees() internal returns(uint256 callFeeToUser) {
         uint256 usdcFee = (IERC20Upgradeable(USDC).balanceOf(address(this)) * totalFee) / PERCENT_DIVISOR;
         if (usdcFee != 0) {
-            uint256 callFeeToUser = (usdcFee * callFee) / PERCENT_DIVISOR;
+            callFeeToUser = (usdcFee * callFee) / PERCENT_DIVISOR;
             uint256 treasuryFeeToVault = (usdcFee * treasuryFee) / PERCENT_DIVISOR;
 
             IERC20Upgradeable(USDC).safeTransfer(msg.sender, callFeeToUser);
@@ -612,6 +620,14 @@ contract ReaperStrategySonne is ReaperBaseStrategyv3 {
         if (usdcBalance != 0) {
             _swap(usdcToWantRoute, usdcBalance);
         }
+    }
+
+    /**
+     * @dev Withdraws all funds leaving rewards behind.
+     */
+    function _reclaimWant() internal override {
+        _deleverage(type(uint256).max);
+        _withdrawUnderlying(balanceOfPool);
     }
 
     /**
