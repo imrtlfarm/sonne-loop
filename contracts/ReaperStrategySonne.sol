@@ -80,11 +80,11 @@ contract ReaperStrategySonne is ReaperBaseStrategyv3 {
         address _treasury,
         address[] memory _strategists,
         address[] memory _multisigRoles,
-        address _scWant
+        address _soWant
     ) public initializer {
         __ReaperBaseStrategy_init(_vault, _treasury, _strategists, _multisigRoles);
-        cWant = CErc20I(_scWant);
-        markets = [_scWant];
+        cWant = CErc20I(_soWant);
+        markets = [_soWant];
         comptroller = IComptroller(cWant.comptroller());
         want = cWant.underlying();
         usdcToWantRoute = [USDC, want];

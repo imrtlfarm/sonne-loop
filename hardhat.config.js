@@ -1,5 +1,5 @@
-require("@nomicfoundation/hardhat-toolbox");
-require("dotenv").config();
+require('@nomicfoundation/hardhat-toolbox');
+require('dotenv').config();
 require('@openzeppelin/hardhat-upgrades');
 
 const PRIVATE_KEY = process.env.DEPLOYER_PRIVATE_KEY;

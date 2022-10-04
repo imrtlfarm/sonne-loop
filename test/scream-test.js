@@ -11,7 +11,7 @@ const moveTimeForward = async seconds => {
 
 const toWantUnit = (num, isUSDC = false) => {
   if (isUSDC) {
-    return ethers.BigNumber.from(num * 10 ** 8);
+    return ethers.BigNumber.from(num * 10 ** 6);
   }
   return ethers.utils.parseEther(num);
 };
@@ -23,22 +23,27 @@ describe('Vaults', function () {
   let Want;
   let vault;
   let strategy;
-  const paymentSplitterAddress = '0x63cbd4134c2253041F370472c130e92daE4Ff174';
   let treasury;
   let want;
-  // const scFUSD = "0x83fad9Bce24B605Fe149b433D62C8011070239B8";
-  // const FUSD = "0xad84341756bf337f5a0164515b1f6f993d194e1f";
-  // const daiAddress = "0x8d11ec38a3eb5e956b052f67da8bdc9bef8abf3e";
-  // const scDaiAddress = "0x8D9AED9882b4953a0c9fa920168fa1FDfA0eBE75";
-  const usdcAddress = '0x04068da6c83afcfa0e13ba15a6696662335d5b75';
-  const scUSDCAddress = '0xE45Ac34E528907d0A0239ab5Db507688070B20bf';
-  const wantAddress = usdcAddress;
-  const scWantAddress = scUSDCAddress;
   let self;
   let wantWhale;
   let selfAddress;
   let strategist;
   let owner;
+
+  const treasuryAddress = '0xeb9C9b785aA7818B2EBC8f9842926c4B9f707e4B';
+
+  const usdcAddress = '0x7F5c764cBc14f9669B88837ca1490cCa17c31607';
+  const soWantAddress = '0xEC8FEa79026FfEd168cCf5C627c7f486D77b765F';
+  const wantAddress = usdcAddress;
+
+  const wantHolder = '0xD6216fC19DB775Df9774a6E33526131dA7D19a2c';
+  const wantWhaleAddress = '0xEbe80f029b1c02862B9E8a70a7e5317C06F62Cae';
+  const strategistAddress = '0x1A20D7A31e5B3Bc5f02c8A146EF6f394502a10c4';
+
+  const superAdminAddress = '0x9BC776dBb134Ef9D7014dB1823Cd755Ac5015203';
+  const adminAddress = '0xeb9C9b785aA7818B2EBC8f9842926c4B9f707e4B';
+  const guardianAddress = '0xb0C9D5851deF8A2Aac4A23031CA2610f8C3483F9';
 
   beforeEach(async function () {
     //reset network
@@ -47,8 +52,7 @@ describe('Vaults', function () {
       params: [
         {
           forking: {
-            jsonRpcUrl: 'https://rpc.ftm.tools/',
-            blockNumber: 38353603,
+            jsonRpcUrl: process.env.OPT_MAINNET_URL,
           },
         },
       ],
@@ -56,13 +60,7 @@ describe('Vaults', function () {
     console.log('providers');
     //get signers
     [owner, addr1, addr2, addr3, addr4, ...addrs] = await ethers.getSigners();
-    // const wantHolder = "0xc4867e5d3f25b47a3be0a15bd70c69d7b93b169e"; // dai
-    // const wantWhaleAddress = "0x93c08a3168fc469f3fc165cd3a471d19a37ca19e"; // dai
-    // const wantHolder = "0x3b7994f623a02617cf1053161d14dc881e1aa02c"; // fusd
-    // const wantWhaleAddress = "0x8d7e07b1a346ac29e922ac01fa34cb2029f536b9"; // fusd
-    const wantHolder = '0xadbeb26c852bb3c41a59078a38ec562b155bb364'; // usdc
-    const wantWhaleAddress = '0xb31D334eec186D29C196dA7cF7069486CEB0D122'; // usdc
-    const strategistAddress = '0x3b410908e71Ee04e7dE2a87f8F9003AFe6c1c7cE';
+
     await hre.network.provider.request({
       method: 'hardhat_impersonateAccount',
       params: [wantHolder],
@@ -84,7 +82,7 @@ describe('Vaults', function () {
 
     //get artifacts
     Strategy = await ethers.getContractFactory('ReaperStrategySonne');
-    Vault = await ethers.getContractFactory('ReaperVaultv1_3');
+    Vault = await ethers.getContractFactory('ReaperVaultv1_4');
     Treasury = await ethers.getContractFactory('ReaperTreasury');
     Want = await ethers.getContractFactory('@openzeppelin/contracts/token/ERC20/ERC20.sol:ERC20');
     console.log('artifacts');
@@ -94,94 +92,48 @@ describe('Vaults', function () {
     console.log('treasury');
     want = await Want.attach(wantAddress);
     console.log('want attached');
-    // vault = await Vault.deploy(
-    //   wantAddress,
-    //   'Scream Single Stake Vault',
-    //   'rfScream',
-    //   0,
-    //   ethers.utils.parseEther('999999'),
-    // );
-    // console.log('vault');
+    vault = await Vault.deploy(wantAddress, 'USDC Sonne Crypt', 'rf-soUSDC', 0, ethers.constants.MaxUint256);
+    console.log('vault');
 
-    // console.log(`vault.address: ${vault.address}`);
-    // console.log(`treasury.address: ${treasury.address}`);
+    console.log(`vault.address: ${vault.address}`);
+    console.log(`treasury.address: ${treasury.address}`);
 
     console.log('strategy');
-    // strategy = await hre.upgrades.deployProxy(
-    //   Strategy,
-    //   [vault.address, [treasury.address, paymentSplitterAddress], [strategistAddress], scWantAddress],
-    //   { kind: 'uups' },
-    // );
-    // await strategy.deployed();
-    vault = Vault.attach('0x085c658E0A0Ddf485A7d848b60bc09C65dbdeF60');
-    strategy = Strategy.attach('0x3252d1Aa08D53eb5A9f6bb5c8c41F40d899864d6');
+    strategy = await hre.upgrades.deployProxy(
+      Strategy,
+      [
+        vault.address,
+        treasuryAddress,
+        [strategistAddress],
+        [superAdminAddress, adminAddress, guardianAddress],
+        soWantAddress,
+      ],
+      { kind: 'uups' },
+    );
+    await strategy.deployed();
+    // vault = Vault.attach('0x085c658E0A0Ddf485A7d848b60bc09C65dbdeF60');
+    // strategy = Strategy.attach('0x3252d1Aa08D53eb5A9f6bb5c8c41F40d899864d6');
 
-    // await vault.initialize(strategy.address);
+    await vault.initialize(strategy.address);
 
-    // console.log(`Strategy deployed to ${strategy.address}`);
+    console.log(`Strategy deployed to ${strategy.address}`);
     console.log(`Vault deployed to ${vault.address}`);
     console.log(`Treasury deployed to ${treasury.address}`);
 
     //approving LP token and vault share spend
-    await want.approve(vault.address, ethers.utils.parseEther('1000000000'));
-    console.log('approvals1');
-    await want.connect(self).approve(vault.address, ethers.utils.parseEther('1000000000'));
-    console.log('approvals2');
-    console.log('approvals3');
-    await want.connect(wantWhale).approve(vault.address, ethers.utils.parseEther('1000000000'));
-    console.log('approvals4');
-    await vault.connect(wantWhale).approve(vault.address, ethers.utils.parseEther('1000000000'));
+    // await want.approve(vault.address, ethers.utils.parseEther('1000000000'));
+    // await want.connect(self).approve(vault.address, ethers.utils.parseEther('1000000000'));
+    // await want.connect(wantWhale).approve(vault.address, ethers.utils.parseEther('1000000000'));
+    // await vault.connect(wantWhale).approve(vault.address, ethers.utils.parseEther('1000000000'));
   });
 
-  describe('Scream rescue tests', function () {
-    it('should be able to retireStrat', async function () {
-      let balanceOfWant = await strategy.balanceOfWant();
-      console.log(`balanceOfWant: ${balanceOfWant}`);
-      let balanceOfPool = await strategy.balanceOfPool();
-      console.log(`balanceOfPool: ${balanceOfPool}`);
-      await strategy.connect(strategist).unpause();
-      balanceOfWant = await strategy.balanceOfWant();
-      console.log(`balanceOfWant: ${balanceOfWant}`);
-      balanceOfPool = await strategy.balanceOfPool();
-      console.log(`balanceOfPool: ${balanceOfPool}`);
-      console.log(`unpaused`);
-      const vaultBalance = await vault.balance();
-      const strategyBalance = await strategy.balanceOf();
-      expect(vaultBalance).to.equal(strategyBalance);
-      await strategy.connect(strategist).setAllowedLtvDrift(0);
-      // Test needs the require statement to be commented out during the test
-      await expect(strategy.connect(strategist).retireStrat()).to.not.be.reverted;
-      const newVaultBalance = await vault.balance();
-      const newStrategyBalance = await strategy.balanceOf();
-      console.log(`newVaultBalance: ${newVaultBalance}`);
-      console.log(`newStrategyBalance: ${newStrategyBalance}`);
-      balanceOfWant = await strategy.balanceOfWant();
-      console.log(`balanceOfWant: ${balanceOfWant}`);
-      balanceOfPool = await strategy.balanceOfPool();
-      console.log(`balanceOfPool: ${balanceOfPool}`);
-      const allowedImprecision = toWantUnit('0.00000001');
-      // expect(newVaultBalance).to.be.closeTo(vaultBalance, allowedImprecision);
-      // expect(newStrategyBalance).to.be.lt(allowedImprecision);
-      // await strategy.connect(strategist).setMinScreamToSell(1);
-      // await strategy.connect(strategist).setMinWantToLeverage(0);
-      // await strategy.connect(strategist).retireStrat();
-      console.log(`retired`);
-    });
-  });
-
-  xdescribe('Deploying the vault and strategy', function () {
+  describe('Deploying the vault and strategy', function () {
     it('should initiate vault with a 0 balance', async function () {
-      console.log(1);
       const totalBalance = await vault.balance();
-      console.log(2);
       const availableBalance = await vault.available();
-      console.log(3);
       const pricePerFullShare = await vault.getPricePerFullShare();
-      console.log(4);
       expect(totalBalance).to.equal(0);
-      console.log(5);
       expect(availableBalance).to.equal(0);
-      console.log(6);
       expect(pricePerFullShare).to.equal(ethers.utils.parseEther('1'));
     });
   });
