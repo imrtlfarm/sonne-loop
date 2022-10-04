@@ -1,25 +1,22 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: agpl-3.0
 
-pragma solidity 0.8.11;
+pragma solidity ^0.8.0;
 
 import "./interfaces/IStrategy.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/Address.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
 /**
  * @dev Implementation of a vault to deposit funds for yield optimizing.
  * This is the contract that receives funds and that users interface with.
  * The yield optimizing strategy itself is implemented in a separate 'Strategy.sol' contract.
  */
-contract ReaperVaultv1_3 is ERC20, Ownable, ReentrancyGuard {
+contract ReaperVaultv1_4 is ERC20, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
-    using SafeMath for uint256;
 
+    // The strategy in use by the vault.
     address public strategy;
 
     uint256 public depositFee;
@@ -71,8 +68,7 @@ contract ReaperVaultv1_3 is ERC20, Ownable, ReentrancyGuard {
     event WithdrawalsIncremented(address user, uint256 amount, uint256 total);
 
     /**
-     * @dev Sets the value of {token} to the token that the vault will
-     * hold as underlying value. It initializes the vault's own 'moo' token.
+     * @dev Initializes the vault's own 'RF' token.
      * This token is minted when someone does a deposit. It is burned in order
      * to withdraw the corresponding portion of the underlying assets.
      * @param _token the token to maximize.
@@ -102,10 +98,7 @@ contract ReaperVaultv1_3 is ERC20, Ownable, ReentrancyGuard {
 
     function initialize(address _strategy) public onlyOwner returns (bool) {
         require(!initialized, "Contract is already initialized.");
-        require(
-            block.timestamp <= (constructionTime + 1200),
-            "initialization period over, use timelock"
-        );
+        require(block.timestamp <= (constructionTime + 1200), "initialization period over, too bad!");
         strategy = _strategy;
         initialized = true;
         return true;
@@ -115,12 +108,8 @@ contract ReaperVaultv1_3 is ERC20, Ownable, ReentrancyGuard {
      * @dev Gives user access to the client
      * @notice this does not affect vault permissions, and is read from client-side
      */
-
     function agreeToTerms() public returns (bool) {
-        require(
-            !hasReadAndAcceptedTerms[msg.sender],
-            "you have already accepted the terms"
-        );
+        require(!hasReadAndAcceptedTerms[msg.sender], "you have already accepted the terms");
         hasReadAndAcceptedTerms[msg.sender] = true;
         emit TermsAccepted(msg.sender);
         return true;
@@ -129,11 +118,10 @@ contract ReaperVaultv1_3 is ERC20, Ownable, ReentrancyGuard {
     /**
      * @dev It calculates the total underlying value of {token} held by the system.
      * It takes into account the vault contract balance, the strategy contract balance
-     *  and the balance deployed in other contracts as part of the strategy.
+     * and the balance deployed in other contracts as part of the strategy.
      */
     function balance() public view returns (uint256) {
-        return
-            token.balanceOf(address(this)).add(IStrategy(strategy).balanceOf());
+        return token.balanceOf(address(this)) + IStrategy(strategy).balanceOf();
     }
 
     /**
@@ -151,8 +139,7 @@ contract ReaperVaultv1_3 is ERC20, Ownable, ReentrancyGuard {
      * Returns an uint256 with 18 decimals of how much underlying asset one vault share represents.
      */
     function getPricePerFullShare() public view returns (uint256) {
-        return
-            totalSupply() == 0 ? 1e18 : balance().mul(1e18).div(totalSupply());
+        return totalSupply() == 0 ? 1e18 : (balance() * 1e18) / totalSupply();
     }
 
     /**
@@ -173,20 +160,18 @@ contract ReaperVaultv1_3 is ERC20, Ownable, ReentrancyGuard {
     function deposit(uint256 _amount) public nonReentrant {
         require(_amount != 0, "please provide amount");
         uint256 _pool = balance();
-        require(_pool.add(_amount) <= tvlCap, "vault is full!");
+        require(_pool + _amount <= tvlCap, "vault is full!");
 
         uint256 _before = token.balanceOf(address(this));
         token.safeTransferFrom(msg.sender, address(this), _amount);
         uint256 _after = token.balanceOf(address(this));
-        _amount = _after.sub(_before);
-        uint256 _amountAfterDeposit = (
-            _amount.mul(PERCENT_DIVISOR.sub(depositFee))
-        ).div(PERCENT_DIVISOR);
+        _amount = _after - _before;
+        uint256 _amountAfterDeposit = (_amount * (PERCENT_DIVISOR - depositFee)) / PERCENT_DIVISOR;
         uint256 shares = 0;
         if (totalSupply() == 0) {
             shares = _amountAfterDeposit;
         } else {
-            shares = (_amountAfterDeposit.mul(totalSupply())).div(_pool);
+            shares = (_amountAfterDeposit * totalSupply()) / _pool;
         }
         _mint(msg.sender, shares);
         earn();
@@ -217,17 +202,17 @@ contract ReaperVaultv1_3 is ERC20, Ownable, ReentrancyGuard {
      */
     function withdraw(uint256 _shares) public nonReentrant {
         require(_shares > 0, "please provide amount");
-        uint256 r = (balance().mul(_shares)).div(totalSupply());
+        uint256 r = (balance() * _shares) / totalSupply();
         _burn(msg.sender, _shares);
 
         uint256 b = token.balanceOf(address(this));
         if (b < r) {
-            uint256 _withdraw = r.sub(b);
+            uint256 _withdraw = r - b;
             IStrategy(strategy).withdraw(_withdraw);
             uint256 _after = token.balanceOf(address(this));
-            uint256 _diff = _after.sub(b);
+            uint256 _diff = _after - b;
             if (_diff < _withdraw) {
-                r = b.add(_diff);
+                r = b + _diff;
             }
         }
         token.safeTransfer(msg.sender, r);

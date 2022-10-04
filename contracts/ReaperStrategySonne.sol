@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import './abstract/ReaperBaseStrategy.sol';
-import './interfaces/IUniswapRouter.sol';
+//import './interfaces/IUniswapRouter.sol';
 import './interfaces/CErc20I.sol';
 import './interfaces/IComptroller.sol';
 import "./interfaces/IVeloRouter.sol";
@@ -12,7 +12,7 @@ pragma solidity 0.8.11;
 /**
  * @dev This strategy will deposit and leverage a token on Sonne to maximize yield by farming reward tokens
  */
-contract ReaperStrategySonne is ReaperBaseStrategy {
+contract ReaperStrategySonne is ReaperBaseStrategyv3 {
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
     /**
