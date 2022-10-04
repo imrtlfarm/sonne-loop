@@ -8,7 +8,7 @@ const OPSCAN_KEY = process.env.OPSCAN_API_KEY;
 module.exports = {
   networks: {
     optimism: {
-      url: 'https://optimism-mainnet.public.blastapi.io',
+      url: 'https://late-fragrant-rain.optimism.quiknode.pro/70171d2e7790f3af6a833f808abe5e85ed6bd881/',
       chainId: 10,
       accounts: [`0x${PRIVATE_KEY}`],
     },

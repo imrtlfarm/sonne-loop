@@ -62,7 +62,7 @@ describe('Vaults', function () {
       params: [
         {
           forking: {
-            jsonRpcUrl: process.env.OPT_MAINNET_URL,
+            jsonRpcUrl: 'https://late-fragrant-rain.optimism.quiknode.pro/70171d2e7790f3af6a833f808abe5e85ed6bd881/',
           },
         },
       ],
@@ -411,7 +411,7 @@ describe('Vaults', function () {
       await strategy.connect(self).harvest();
     });
 
-    xit('should provide yield', async function () {
+    it('should provide yield', async function () {
       const blocksToSkip = 100;
       const initialUserBalance = await want.balanceOf(selfAddress);
       const depositAmount = initialUserBalance.div(10);
